@@ -1,0 +1,236 @@
+{
+  "name": "Booking Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "public": true,
+        "options": {}
+      },
+      "id": "a8b11f42-83c5-4119-b53d-c6d18ffd0f1d",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [-1296, 352],
+      "webhookId": "booking-agent-chat"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_API_URL/history/add",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"user_id\": \"owner\",\n  \"role\": \"user\",\n  \"content\": {{ JSON.stringify($json.chatInput) }}\n}",
+        "options": {}
+      },
+      "id": "db1e3a5d-f965-4797-98f6-c08a411e6654",
+      "name": "Save User Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-1072, 352]
+    },
+    {
+      "parameters": {
+        "url": "YOUR_API_URL/history/list",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "user_id", "value": "owner" },
+            { "name": "limit", "value": "10" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b90ca39c-070a-475e-af27-a18cfd0dba01",
+      "name": "Get History",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-864, 352]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a helpful booking assistant named BookBot. Use the conversation history and available tools to help the user manage their calendar.\n\nCurrent time: {{ $now }}\n\nConversation History (for context only - do NOT reuse attendee emails or booking details from old conversations):\n{{ JSON.stringify($('Get History').item.json) }}\n\nCurrent User Message:\n{{ $('Chat Trigger').item.json.chatInput }}\n\nTOOL USAGE RULES - always follow these:\n\n1. SCHEDULE / AVAILABILITY QUESTIONS (e.g. what's on my calendar, am I free, what's next week):\n   - ALWAYS call CheckAvailability immediately and present the results to the user\n   - Never say you don't have access to their schedule without trying the tool first\n\n2. BOOKING PROCESS:\n   - ALWAYS call CheckAvailability first to check for conflicts\n   - If a conflict exists: name the clashing event and ask the user to proceed anyway, pick a different time, or cancel\n   - Only call BookAppointment after no conflict is found OR user explicitly approves\n\n3. RESCHEDULE PROCESS:\n   - If the user has no event ID, call CheckAvailability first and show events with their IDs\n   - ALWAYS call CheckAvailability to check the new time slot for conflicts before rescheduling\n   - If the new time conflicts with another event, flag it and ask the user how to proceed\n   - Only call RescheduleAppointment after confirming the new slot is free OR user explicitly approves\n   - Confirm the update was successful\n\n4. CANCEL PROCESS:\n   - If the user has no event ID, call CheckAvailability and show events with their IDs\n   - Confirm which event before calling CancelAppointment\n   - Confirm success after cancellation\n\nCRITICAL RULES:\n- Never answer a schedule or availability question from memory - always call CheckAvailability\n- Attendee emails must come ONLY from what the user explicitly states in the CURRENT conversation. NEVER reuse attendees from history\n- Use ISO 8601 format for dates (YYYY-MM-DDTHH:MM:SS+05:30 for IST)\n- Be polite and professional\n- Ask for clarification if details are missing\n- If a tool call fails and the user confirms to proceed with the same details (e.g. \"all same\", \"try again\", \"same as before\"), immediately retry the exact same tool call with the same parameters - do NOT show the schedule or ask again",
+        "options": {}
+      },
+      "id": "2a422b5b-8b79-4f9f-a96e-6e0567243d0e",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [-640, 352],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "model": "gpt-4.1",
+        "options": {}
+      },
+      "id": "fc39cf70-ddc3-48b3-b901-8a0288b9ec05",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [-736, 608],
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "List the user's upcoming calendar events. Call this whenever the user asks about their schedule, upcoming meetings, availability, or needs event IDs for cancellation or rescheduling.",
+        "url": "YOUR_API_URL/calendar/events"
+      },
+      "id": "a60de354-2388-449d-a58f-c207b3c2d7ad",
+      "name": "CheckAvailability",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [-224, 608]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Book a new appointment on the user calendar. Only call this after confirming no conflicts exist or the user has approved booking despite a conflict.",
+        "method": "POST",
+        "url": "YOUR_API_URL/calendar/book",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"summary\": \"{summary}\",\n  \"start_time\": \"{start_time}\",\n  \"end_time\": \"{end_time}\",\n  \"description\": \"{description}\",\n  \"attendee_emails\": {attendee_emails}\n}",
+        "placeholderDefinitions": {
+          "values": [
+            { "name": "summary", "description": "Short title of the appointment" },
+            { "name": "start_time", "description": "Start time in ISO 8601 format" },
+            { "name": "end_time", "description": "End time in ISO 8601 format" },
+            { "name": "description", "description": "Additional details or agenda" },
+            { "name": "attendee_emails", "description": "JSON array of email strings e.g. [\"a@b.com\"] or []" }
+          ]
+        }
+      },
+      "id": "9a6cd8b1-d937-45ec-a851-6a6b48c655e2",
+      "name": "BookAppointment",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [-496, 608]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Cancel an existing appointment by its event ID. Only call this after the user has confirmed which event to cancel.",
+        "method": "POST",
+        "url": "YOUR_API_URL/calendar/cancel",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event_id\": \"{event_id}\"\n}",
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "event_id",
+              "description": "The Google Calendar event ID of the appointment to cancel. Get this from CheckAvailability if not already known."
+            }
+          ]
+        }
+      },
+      "id": "c3f1a2b4-d5e6-7890-abcd-ef1234567890",
+      "name": "CancelAppointment",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [-496, 800]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Reschedule an existing appointment to a new time. Requires the event ID and the new start and end times. Only call this after confirming the new slot has no conflicts or the user has approved.",
+        "method": "POST",
+        "url": "YOUR_API_URL/calendar/reschedule",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event_id\": \"{event_id}\",\n  \"summary\": \"{summary}\",\n  \"start_time\": \"{start_time}\",\n  \"end_time\": \"{end_time}\",\n  \"description\": \"{description}\"\n}",
+        "placeholderDefinitions": {
+          "values": [
+            { "name": "event_id", "description": "The Google Calendar event ID of the appointment to reschedule. Get this from CheckAvailability if not already known." },
+            { "name": "summary", "description": "Title of the appointment. Use the existing title if the user is not changing it." },
+            { "name": "start_time", "description": "New start time in ISO 8601 format (YYYY-MM-DDTHH:MM:SS+05:30 for IST)" },
+            { "name": "end_time", "description": "New end time in ISO 8601 format (YYYY-MM-DDTHH:MM:SS+05:30 for IST)" },
+            { "name": "description", "description": "Agenda or notes. Use the existing description if the user is not changing it." }
+          ]
+        }
+      },
+      "id": "d4e5f6a7-b8c9-0123-def0-123456789abc",
+      "name": "RescheduleAppointment",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [-224, 800]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_API_URL/history/add",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"user_id\": \"owner\",\n  \"role\": \"assistant\",\n  \"content\": {{ JSON.stringify($json.output) }}\n}",
+        "options": {}
+      },
+      "id": "adf79e62-5c5e-401f-bd5a-bd6dbe102fd5",
+      "name": "Save Agent Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-192, 352]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+              "name": "output",
+              "value": "={{ $('AI Agent').item.json.output }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f1e2d3c4-b5a6-7890-cdef-012345678901",
+      "name": "Return Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [32, 352]
+    }
+  ],
+  "connections": {
+    "Chat Trigger": {
+      "main": [[{ "node": "Save User Message", "type": "main", "index": 0 }]]
+    },
+    "Save User Message": {
+      "main": [[{ "node": "Get History", "type": "main", "index": 0 }]]
+    },
+    "Get History": {
+      "main": [[{ "node": "AI Agent", "type": "main", "index": 0 }]]
+    },
+    "AI Agent": {
+      "main": [[{ "node": "Save Agent Response", "type": "main", "index": 0 }]]
+    },
+    "Save Agent Response": {
+      "main": [[{ "node": "Return Response", "type": "main", "index": 0 }]]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [[{ "node": "AI Agent", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "CheckAvailability": {
+      "ai_tool": [[{ "node": "AI Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "BookAppointment": {
+      "ai_tool": [[{ "node": "AI Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "CancelAppointment": {
+      "ai_tool": [[{ "node": "AI Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "RescheduleAppointment": {
+      "ai_tool": [[{ "node": "AI Agent", "type": "ai_tool", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

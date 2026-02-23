@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.pytest_cache/
+
+# Environment
+.env
+*.env.local
+
+# Google OAuth
+credentials.json
+token.json
+
+# Database
+*.db
+history.db
+
+# Temporary files
+.tmp/
+*.tmp
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# MCP config (contains API keys)
+.mcp.json
+
+# Claude Code local config
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
